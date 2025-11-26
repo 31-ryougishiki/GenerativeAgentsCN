@@ -5,6 +5,15 @@
 	let zoom = {{ zoom|tojson }};
 	if (zoom <= 0) zoom = document.documentElement.clientWidth / 4400;
 
+	// bug修复 按钮显示不灵敏
+	let buttonPlay, buttonPause, buttonShowConversation, buttonHideConversation, buttonToggleBuildingNames;
+	let currentTime, textConversation; // 时间和对话文本也全局声明（原有可能已声明，确保一致）
+
+
+	// 新增：建筑名称显示控制相关变量
+	let buildingTexts = []; // 存储所有建筑名称文本对象的数组
+	let showBuildingNames = true; // 初始状态：显示建筑名称
+
 	let tile_width = 32;
 	let movement_speed = {{ play_speed|tojson }};
 	let execute_count_max = tile_width / movement_speed;
@@ -67,6 +76,9 @@
 	function preload() {
 		this.load.crossOrigin = "";
 
+		// Load building data
+		this.load.json("buildingData", "static/assets/village/tilemap/大地点-坐标汇总.json");
+		
 		// Load images
 		this.load.image("blocks_1", "static/assets/village/tilemap/blocks_1.png");
 		this.load.image("walls", "static/assets/village/tilemap/Room_Builder_32x32.png");
@@ -140,6 +152,57 @@
 		collisionsLayer.setDepth(-1);
 		foregroundL1Layer.setDepth(2);
 		foregroundL2Layer.setDepth(2);
+		
+		// ================================= 新增代码开始 =================================
+		// 1. 获取加载的建筑数据
+		const buildingData = this.cache.json.get("buildingData"); // 对应preload中的key
+		const tileWidth = 32; // 与原代码tile_width一致
+
+		// 2. 遍历所有建筑，筛选「占点数>10」的建筑
+		Object.entries(buildingData).forEach(([buildingName, coords]) => {
+			// coords是建筑的瓦片坐标数组，length即占点数
+			if (coords.length > 30) {
+				// 3. 计算建筑的中心点（瓦片坐标平均值）
+				let totalX = 0;
+				let totalY = 0;
+				coords.forEach(([x, y]) => {
+					totalX += x;
+					totalY += y;
+				});
+				// 瓦片中心点坐标（平均值）
+				const centerTileX = totalX / coords.length;
+				const centerTileY = totalY / coords.length;
+				// 转换为像素坐标（适配32x32瓦片，调整偏移量让文字居中）
+				const pixelX = centerTileX * tileWidth + tileWidth / 2;
+				const pixelY = centerTileY * tileWidth + tileWidth / 2;
+
+				// 4. 创建建筑名称文本标签
+				const buildingText = this.add.text(
+					pixelX,
+					pixelY,
+					buildingName,
+					{
+					font: "50px 黑体",
+					fill: "#ffffff", // 白色文字
+					backgroundColor: "#333333", // 半透明黑色背景（80是透明度）
+					padding: { x: 10, y: 4 }, // 内边距
+					borderRadius: 4, // 圆角
+					align: "center"
+					}
+				);
+
+				// 5. 文本样式优化（关键）
+				buildingText.setOrigin(0.5, 0.5); // 锚点居中（对应中心点坐标）
+				buildingText.setDepth(1.5); // 深度介于墙壁（1）和前景（2）之间，确保可见
+				buildingText.setScrollFactor(1); // 跟随地图滚动（建筑是地图一部分）
+				buildingText.alpha = 0.9; // 透明度，避免遮挡建筑细节
+
+				// ================================= 新增：存入数组 =================================
+				buildingTexts.push(buildingText); // 将文本对象加入数组，便于后续控制
+			}
+
+		});
+		// ================================= 新增代码结束 =================================
 
 		const canvas = game.canvas;
 		canvas.addEventListener("wheel", (event) => {
@@ -152,13 +215,13 @@
 				y,
 				text,
 				{
-					font: "24px 黑体",
+					font: "40px 黑体",
 					fontWeight: "normal",
 					fill: "#000000",
 					backgroundColor: background,
-					padding: { x: 20, y: 4},
+					padding: { x: 20, y: 8},
 					align: "left",
-					wordWrap: { width: 1200/zoom, useAdvancedWrap: true },
+					wordWrap: { width: 1400/zoom, useAdvancedWrap: true },
 				}
 			);
 
@@ -188,12 +251,60 @@
 		buttonHideConversation = add_text(this, posX, posY, " 隐藏对话 ", "#ffffcc");
 		buttonHideConversation.setInteractive();
 		posX += buttonHideConversation.width + 10;
+		
+		// ================================= 新增按钮开始 =================================
+		// 新增：建筑名称切换按钮（初始文本为「隐藏建筑名称」）
+		buttonToggleBuildingNames = add_text(this, posX, posY, "[隐藏建筑名称]", "#ffffcc");
+		buttonToggleBuildingNames.setInteractive();
+		posX += buttonToggleBuildingNames.width + 10; // 按钮位置右移，与其他按钮并排
+		// ================================= 新增按钮结束 =================================
+
+		// Setup play and pause button
+		buttonPlay.on("pointerdown", function() {
+			if (finished) return;
+			buttonPlay.text = "[运行]";
+			buttonPause.text = " 暂停 ";
+			paused = false;
+		});
+
+		buttonPause.on("pointerdown", function() {
+			if (finished) return;
+			buttonPlay.text = " 运行 ";
+			buttonPause.text = "[暂停]";
+			paused = true;
+		});
+
+		buttonShowConversation.on("pointerdown", function() {
+			buttonShowConversation.text = "[显示对话]";
+			buttonHideConversation.text = " 隐藏对话 ";
+			textConversation.setVisible(true);
+		});
+
+		buttonHideConversation.on("pointerdown", function() {
+			buttonShowConversation.text = " 显示对话 ";
+			buttonHideConversation.text = "[隐藏对话]";
+			textConversation.setVisible(false);
+		});
+
+		// ================================= 新增按钮逻辑开始 =================================
+		buttonToggleBuildingNames.on("pointerdown", function() {
+			showBuildingNames = !showBuildingNames; // 切换状态（显示↔隐藏）
+			// 更新按钮文本（同步状态）
+			if (showBuildingNames) {
+			buttonToggleBuildingNames.text = "[隐藏建筑名称]"; // 当前显示→按钮显示「隐藏」
+			buildingTexts.forEach(text => text.setVisible(true)); // 显示所有建筑名称
+			} else {
+			buttonToggleBuildingNames.text = " 显示建筑名称 "; // 当前隐藏→按钮显示「显示」
+			buildingTexts.forEach(text => text.setVisible(false)); // 隐藏所有建筑名称
+			}
+		});
+		// ================================= 新增按钮逻辑结束 =================================
 
 		// Show current time
 		currentTime = add_text(this, posX, posY, "", "#ccffcc");
 
 		// Show conversation content
-		textConversation = add_text(this, 20, posY + currentTime.height + 10, " —— ", "#ccffcc");
+		textConversation = add_text(this, 40, posY + currentTime.height + 10, " —— ", "#000000");
 
 		// Setup camera
 		player = this.physics.add.sprite(2440, 500, "atlas", "down").setSize(30, 40).setOffset(0, 0);
@@ -275,32 +386,6 @@
 
 	// Update function
 	function update(time, delta) {
-		// Setup play and pause button
-		buttonPlay.on("pointerdown", function() {
-			if (finished) return;
-			buttonPlay.text = "[运行]";
-			buttonPause.text = " 暂停 ";
-			paused = false;
-		});
-
-		buttonPause.on("pointerdown", function() {
-			if (finished) return;
-			buttonPlay.text = " 运行 ";
-			buttonPause.text = "[暂停]";
-			paused = true;
-		});
-
-		buttonShowConversation.on("pointerdown", function() {
-			buttonShowConversation.text = "[显示对话]";
-			buttonHideConversation.text = " 隐藏对话 ";
-			textConversation.setVisible(true);
-		});
-
-		buttonHideConversation.on("pointerdown", function() {
-			buttonShowConversation.text = " 显示对话 ";
-			buttonHideConversation.text = "[隐藏对话]";
-			textConversation.setVisible(false);
-		});
 
 		// Move camera
 		const camera_speed = 400;

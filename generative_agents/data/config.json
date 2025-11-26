@@ -11,10 +11,10 @@
         },
         "think": {
             "llm": {
-                "provider": "ollama",
-                "model": "qwen3:8b-q4_K_M",
-                "base_url": "http://127.0.0.1:11434/v1",
-                "api_key": ""
+                "provider": "openai",
+                "model": "gpt-4",
+                "base_url": "https://jeniya.top/v1",
+                "api_key": "sk-4255GcIfHtoXuObSNSVFLMeHquzjaDziOdLvpR5wtkDikfQU"
             },
             "interval": 1000,
             "poignancy_max": 150
@@ -22,10 +22,10 @@
         "chat_iter": 4,
         "associate": {
             "embedding": {
-                "provider": "ollama",
-                "model": "bge-m3:latest",
-                "base_url": "http://127.0.0.1:11434",
-                "api_key": ""
+                "provider": "openai",
+                "model": "text-embedding-3-small",
+                "base_url": "https://jeniya.top/v1",
+                "api_key": "sk-4255GcIfHtoXuObSNSVFLMeHquzjaDziOdLvpR5wtkDikfQU"
             },
             "retention": 8
         }
