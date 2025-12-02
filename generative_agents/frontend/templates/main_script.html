@@ -14,6 +14,26 @@
 	let buildingTexts = []; // 存储所有建筑名称文本对象的数组
 	let showBuildingNames = true; // 初始状态：显示建筑名称
 
+	// ================================= 豆包新增：对话筛选相关变量 =================================
+	let selectedPersona = "所有人"; // 选中的人物，默认显示所有人
+	let allPersonaNames = []; // 存储所有人物名称的数组
+	let dropdownButton, dropdownOptions; // 下拉框触发按钮和选项容器
+	let dropdownVisible = false; // 下拉框是否显示的状态
+	// ================================= 新增结束 =================================
+
+	// ================================= 豆包新增：对话历史存储变量 =================================
+	let conversationHistory = []; // 存储所有历史对话，格式：[{key: 时间密钥, text: 对话文本}]
+	// ================================= 新增结束 =================================
+
+	// ================================= 豆包新增：滑动条相关变量 =================================
+	let conversationContainer; // 对话文本的裁剪容器
+	let scrollbarBg, scrollbarThumb; // 滑动条背景和滑块
+	let isDragging = false; // 是否正在拖动滑块
+	const containerHeight = 600; // 对话框固定高度（可调整，比如600px）
+	const scrollbarWidth = 12; // 滑动条宽度
+	const scrollbarMargin = 8; // 滑动条与对话框的间距
+	// ================================= 新增结束 =================================
+
 	let tile_width = 32;
 	let movement_speed = {{ play_speed|tojson }};
 	let execute_count_max = tile_width / movement_speed;
@@ -28,6 +48,9 @@
 	var spawn_tile_loc = {};
 	for (var key in persona_names) {
 		spawn_tile_loc[key] = persona_names[key];
+		// ================================= 豆包新增：收集所有人物名称 =================================
+		allPersonaNames.push(key);
+		// ================================= 新增结束 =================================
 	}
 
 	var personas = {};
@@ -77,7 +100,7 @@
 		this.load.crossOrigin = "";
 
 		// Load building data
-		this.load.json("buildingData", "static/assets/village/tilemap/大地点-坐标汇总.json");
+		this.load.json("buildingData", "static/assets/village/tilemap/大建筑.json");
 		
 		// Load images
 		this.load.image("blocks_1", "static/assets/village/tilemap/blocks_1.png");
@@ -108,6 +131,22 @@
 			this.load.atlas(p, image_static, filename="static/assets/village/agents/sprite.json");
 		}
 	}
+
+	// ================================= 豆包新增：创建下拉框选项的工具函数 =================================
+	function createDropdownOption(scene, x, y, text, onClick) {
+		const option = scene.add.text(x, y, text, {
+			font: "40px 黑体",
+			fill: "#000000",
+			backgroundColor: "#ffffcc",
+			padding: { x: 20, y: 8 },
+			align: "center"
+		});
+		option.setInteractive();
+		option.on("pointerdown", onClick);
+		option.setDepth(11); // 层级高于聊天框（10），确保可见
+		return option;
+	}
+	// ================================= 新增结束 =================================
 
 	// Create function
 	function create() {
@@ -204,12 +243,15 @@
 		});
 		// ================================= 新增代码结束 =================================
 
+
 		const canvas = game.canvas;
 		canvas.addEventListener("wheel", (event) => {
 			event.stopPropagation();
 		}, { passive: false, capture: true });
 
-		function add_text(game, x, y, text, background) {
+		// 原函数：function add_text(game, x, y, text, background) {
+		// 修改后：增加 textColor 参数，默认值 #000000（保持其他UI黑色）
+		function add_text(game, x, y, text, background, textColor = "#000000") {
 			res = game.add.text(
 				x,
 				y,
@@ -217,11 +259,11 @@
 				{
 					font: "40px 黑体",
 					fontWeight: "normal",
-					fill: "#000000",
+					fill: textColor, // 用传入的颜色，默认黑色
 					backgroundColor: background,
 					padding: { x: 20, y: 8},
 					align: "left",
-					wordWrap: { width: 1400/zoom, useAdvancedWrap: true },
+					wordWrap: { width: document.documentElement.clientWidth * 0.8 / zoom, useAdvancedWrap: true },
 				}
 			);
 
@@ -258,6 +300,55 @@
 		buttonToggleBuildingNames.setInteractive();
 		posX += buttonToggleBuildingNames.width + 10; // 按钮位置右移，与其他按钮并排
 		// ================================= 新增按钮结束 =================================
+
+		// ================================= 新增：创建对话筛选下拉框 =================================
+		// 1. 创建下拉框触发按钮（放在建筑名称按钮右侧）
+		dropdownButton = add_text(this, posX, posY, "[筛选对话：所有人]", "#ffffcc");
+		dropdownButton.setInteractive();
+		posX += dropdownButton.width + 10; // 按钮位置右移，与其他按钮并排
+
+		// 2. 创建下拉选项容器（初始隐藏）
+		dropdownOptions = this.add.container(dropdownButton.x, dropdownButton.y + dropdownButton.height + 5);
+		dropdownOptions.setVisible(false);
+		dropdownOptions.setDepth(11); // 确保在最上层
+
+		// 3. 添加“所有人”选项（修正：加入容器，与其他选项位置一致）
+		let optionY = 0;
+		const allOption = createDropdownOption(this, 0, optionY, "所有人", () => {
+			selectedPersona = "所有人";
+			dropdownButton.text = "[筛选对话：所有人]";
+			dropdownVisible = false;
+			dropdownOptions.setVisible(false);
+		});
+		dropdownOptions.add(allOption); // 关键修复：将“所有人”选项加入容器
+
+		// 4. 添加所有人物选项（动态生成）
+		allPersonaNames.forEach((persona, index) => {
+			optionY = (index + 1) * (allOption.height + 5); // 每个选项向下偏移
+			const personaOption = createDropdownOption(this, 0, optionY, persona, () => {
+				selectedPersona = persona;
+				dropdownButton.text = `[筛选对话：${persona}]`; // 更新按钮文本显示当前选中人物
+				dropdownVisible = false;
+				dropdownOptions.setVisible(false);
+			});
+			dropdownOptions.add(personaOption);
+		});
+
+		// 5. 下拉框触发按钮点击事件（显示/隐藏选项）
+		dropdownButton.on("pointerdown", () => {
+			dropdownVisible = !dropdownVisible;
+			dropdownOptions.setVisible(dropdownVisible);
+		});
+
+		// 6. 点击空白区域关闭下拉框（优化体验）
+		this.input.on("pointerdown", (pointer) => {
+			if (!dropdownButton.getBounds().contains(pointer.x, pointer.y) &&
+				!dropdownOptions.getBounds().contains(pointer.x, pointer.y)) {
+				dropdownVisible = false;
+				dropdownOptions.setVisible(false);
+			}
+		});
+		// ================================= 新增结束 =================================
 
 		// Setup play and pause button
 		buttonPlay.on("pointerdown", function() {
@@ -304,7 +395,11 @@
 		currentTime = add_text(this, posX, posY, "", "#ccffcc");
 
 		// Show conversation content
-		textConversation = add_text(this, 40, posY + currentTime.height + 10, " —— ", "#000000");
+		textConversation = add_text(this, 20, posY + currentTime.height + 10, " —— ", "#ffffff");
+		textConversation.alpha = 1;
+		// 3. 关键修改：缩小字体+减少内边距（实现"稍微小一点"）
+		textConversation.setStyle({ font: "32px 黑体" }); // 字体从40px改成32px（核心缩小）
+		textConversation.setPadding(15, 6); // 内边距：左右从20→15px，上下从8→6px（背景框更紧凑）
 
 		// Setup camera
 		player = this.physics.add.sprite(2440, 500, "atlas", "down").setSize(30, 40).setOffset(0, 0);
@@ -414,17 +509,68 @@
 			return;
 		}
 
+		// ================================= 实现：显示到此时间为止的对话历史 =================================
 		curr_datetime = new Date(start_datetime.getTime());
 		curr_year = curr_datetime.getFullYear().toString().padStart(4, "0");
 		curr_month = (curr_datetime.getMonth() + 1).toString().padStart(2, "0");
 		curr_day = curr_datetime.getDate().toString().padStart(2, "0");
 		curr_hour = curr_datetime.getHours().toString().padStart(2, "0");
 		curr_minute = curr_datetime.getMinutes().toString().padStart(2, "0");
-		conversation_key = `${curr_year}${curr_month}${curr_day}-${curr_hour}:${curr_minute}`;
-		conversation_key_text = all_movement["conversation"][conversation_key];
-		if (conversation_key_text && conversation_key_text != "") {
-			textConversation.setText(`\n${conversation_key} 对话记录：\n` + conversation_key_text);
+
+		// 1. 构建当前时间密钥（与数据格式一致）
+		const currentKey = `${curr_year}${curr_month}${curr_day}-${curr_hour}:${curr_minute}`;
+
+		// 2. 安全获取当前对话数据，避免报错
+		const conversationData = all_movement?.["conversation"] || {};
+		const currentText = (conversationData[currentKey] || "").trim();
+
+		// 3. 将当前对话添加到历史（去重，避免重复累积）
+		const isAlreadyInHistory = conversationHistory.some(item => item.key === currentKey);
+		if (currentText !== "" && !isAlreadyInHistory) {
+			conversationHistory.push({ key: currentKey, text: currentText });
 		}
+
+		// 4. 筛选历史对话（按选中人物）- 优化：保留与目标人物相关的完整对话回合
+		let filteredHistory = [];
+		// 辅助函数：转义正则特殊字符（避免人物名称含*+等符号导致匹配出错）
+		const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+		if (selectedPersona === "所有人") {
+			// 显示所有人的完整历史（按时间顺序）
+			filteredHistory = conversationHistory.map(item => 
+				`\n【${item.key}】对话记录：\n${item.text}`
+			);
+		} else {
+			// 筛选包含目标人物发言的完整对话回合（保留所有参与方的发言）
+			const targetPersona = selectedPersona.replace("_", " "); // 统一处理下划线为空格
+			const escapedPersona = escapeRegExp(targetPersona); // 转义正则特殊字符
+			// 正则规则：行中包含目标人物名 + 中英文冒号（:或：） + 可选空格（冒号后有无空格都支持）
+			const personaReg = new RegExp(`${escapedPersona}[：:]\\s*`, 'u'); // 'u'支持Unicode（中文）
+			
+			filteredHistory = conversationHistory.filter(item => {
+				// 拆分单条对话为多行（每行一个发言）
+				const lines = item.text.split("\n");
+				// 判断：这条对话中是否存在目标人物的发言（只要有1行匹配即可）
+				const hasPersonaSpeech = lines.some(line => 
+					line.trim() !== "" && personaReg.test(line)
+				);
+				return hasPersonaSpeech; // 只有包含目标人物发言的对话才保留
+			}).map(item => {
+				// 格式化保留完整对话内容（包含所有参与方的发言）
+				return `\n【${item.key}】与【${selectedPersona}】相关的完整对话：\n${item.text}`;
+			});
+		}
+
+		// 5. 显示最终结果（历史对话或提示）
+		if (filteredHistory.length > 0) {
+			// 拼接所有历史对话，开头加标题
+			const historyText = `=== 到此时间（${currentKey}）为止的对话历史 ===` + filteredHistory.join("\n");
+			textConversation.setText(historyText);
+		} else {
+			// 无历史对话时显示提示
+			textConversation.setText(`\n当前时间：${currentKey}\n暂无对话历史`);
+		}
+		// ================================= 实现结束 =================================
 
 		// Moving personas
 		for (let i = 0; i < Object.keys(personas).length; i++) {
